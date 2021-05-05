@@ -1,0 +1,205 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: KaaSRelease
+metadata:
+  name: kaas-1-11-0
+spec:
+  version: 1.11.0
+  clusterRelease: kubernetes-4-5-0-1-17
+  supportedClusterReleases:
+  - version: 3.8.0
+    name: kubernetes-3-8-0-1-16
+    availableUpgrades:
+    - version: 4.5.0
+  - version: 4.4.0
+    name: kubernetes-4-4-0-1-17
+    availableUpgrades:
+    - version: 4.5.0
+  - version: 4.5.0
+    name: kubernetes-4-5-0-1-17
+  - version: 5.4.0
+    name: ucp-5-4-0-3-3-0-beta1
+    tag: dev
+  - version: 5.5.0
+    name: ucp-5-5-0-3-4-0-dev
+    tag: dev
+  bootstrap:
+    version: 1.8.1
+  helmRepositories:
+  - name: kaas-release
+    url: core/helm
+  - name: kaas-iam
+    url: iam/helm
+  - name: kaas-bm
+    url: bm/helm
+  management:
+    helmReleases:
+    - name: iam
+      requiresPersistentVolumes: true
+      version: 1.1.5
+      chart: kaas-iam/iam
+      namespace: kaas
+      values:
+        api:
+          # Set during bootstrap
+          # keycloak:
+          #   url:
+          #   ca:
+          tls:
+            enabled: true
+          service:
+            type: LoadBalancer
+            # Set during bootstrap
+            # loadBalancerIP:
+        keycloak:
+          keycloak:
+            service:
+              type: LoadBalancer
+              # Set during bootstrap
+              # loadBalancerIP:
+            pvc:
+              enabled: true
+            extraVolumes: |
+              - name: tls
+                secret:
+                  secretName: keycloak-tls-certs
+            extraVolumeMounts: |
+              - name: tls
+                mountPath: "/etc/x509/https"
+    - name: kaas-ui
+      version: 1.7.0
+      chart: kaas-release/kaas-ui
+      namespace: kaas
+      values:
+        image:
+          tag: 1.7.0
+        rbac:
+          create: true
+
+    - name: iam-controller
+      version: 1.8.1
+      chart: kaas-release/iam-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.8.1
+
+    - name: squid-cache
+      requiresPersistentVolumes: true
+      version: 1.8.1
+      chart: kaas-release/squid-cache
+      namespace: kaas
+      values:
+        cacheSize: 20
+        # override during bootstrap
+        proxyDomain: kaas.local
+        image:
+          tag: 1.8.1
+        serviceDomains:
+          # override during bootstrap
+          dockerRegistry:
+            proxySubdomain: docker-kaas-local
+            upstream: docker-kaas-local.artifactory.mirantis.com
+          binaryRegistry:
+            proxySubdomain: binary-kaas-local
+            upstream: binary-kaas-local.artifactory.mirantis.com
+
+    - name: ntpd
+      version: 1.8.1
+      chart: kaas-release/ntpd
+      namespace: kaas
+      values:
+        image:
+          tag: 1.8.1
+
+    - name: admission-controller
+      version: 1.8.1
+      chart: kaas-release/admission-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.8.1
+
+  regional:
+  - provider: openstack
+    helmReleases:
+    - &publicApi
+      name: kaas-public-api
+      version: 1.8.1
+      chart: kaas-release/kaas-public-api
+      namespace: kaas
+      values: {}
+    - name: openstack-provider
+      version: 1.8.1
+      chart: kaas-release/openstack-provider
+      namespace: kaas
+      values:
+        images:
+          openstackMachineController:
+            tag: 1.8.1
+    - &lcmController
+      name: lcm-controller
+      version: 1.8.1
+      chart: kaas-release/lcm-controller
+      namespace: kaas
+      values:
+        lcmControllerImage:
+          tag: v0.2.0-95-g6025c94f
+    - &releaseController
+      name: release-controller
+      version: 1.8.1
+      chart: kaas-release/release-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.8.1
+    - name: os-credentials-controller
+      version: 1.8.1
+      chart: kaas-release/os-credentials-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.8.1
+  - provider: baremetal
+    helmReleases:
+      - *publicApi
+      - name: baremetal-operator
+        requiresPersistentVolumes: true
+        version: 2.8.0
+        chart: kaas-bm/baremetal-operator
+        namespace: kaas
+        values: {}
+      - name: baremetal-provider
+        version: 1.8.1
+        chart: kaas-release/baremetal-provider
+        namespace: kaas
+        values:
+          cluster_api_provider_baremetal:
+            image:
+              tag: 1.8.1
+      - name: kaas-ipam
+        version: 2.7.1
+        chart: kaas-bm/kaas-ipam
+        namespace: kaas
+        values: {}
+      - *lcmController
+      - *releaseController
+  - provider: aws
+    helmReleases:
+      - *publicApi
+      - name: aws-provider
+        version: 1.8.1
+        chart: kaas-release/aws-provider
+        namespace: kaas
+        values:
+          awsController:
+            image:
+              tag: 1.8.1
+      - *lcmController
+      - *releaseController
+      - name: aws-credentials-controller
+        version: 1.8.1
+        chart: kaas-release/aws-credentials-controller
+        namespace: kaas
+        values:
+          image:
+            tag: 1.8.1

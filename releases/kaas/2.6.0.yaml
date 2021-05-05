@@ -1,0 +1,293 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: KaaSRelease
+metadata:
+  name: kaas-2-6-0
+spec:
+  version: 2.6.0
+  clusterRelease: mke-5-13-0-3-3-6
+  supportedClusterReleases:
+  - version: 5.11.0
+    name: mke-5-11-0-3-3-4
+    availableUpgrades:
+    - version: 5.13.0
+    providers:
+      supported:
+      - byo
+  - version: 5.12.0
+    name: mke-5-12-0-3-3-6
+    availableUpgrades:
+    - version: 5.13.0
+  - version: 5.13.0
+    name: mke-5-13-0-3-3-6
+  - version: 6.12.0
+    name: mos-6-12-0-21-1
+    tag: openstack
+  bootstrap:
+    version: 1.18.6
+  helmRepositories:
+  - name: kaas-release
+    url: core/helm
+  - name: kaas-iam
+    url: iam/helm
+  - name: kaas-bm
+    url: bm/helm
+  management:
+    helmReleases:
+    - name: iam
+      requires:
+      - local-volume-provisioner
+      localVolumes:
+      - name: kaas-iam-data
+        bindMounts:
+        - volPerNode: 1
+      version: 2.0.0
+      chart: kaas-iam/iam
+      namespace: kaas
+      values:
+        api:
+          # Set during bootstrap
+          # keycloak:
+          #   url:
+          #   ca:
+          tls:
+            enabled: true
+          service:
+            type: LoadBalancer
+            # Set during bootstrap
+            # loadBalancerIP:
+        keycloak:
+          keycloak:
+            service:
+              type: LoadBalancer
+              # Set during bootstrap
+              # loadBalancerIP:
+            pvc:
+              enabled: true
+            extraVolumes: |
+              - name: tls
+                secret:
+                  secretName: keycloak-tls-certs
+            extraVolumeMounts: |
+              - name: tls
+                mountPath: "/etc/x509/https"
+          mariadb:
+            volume:
+              class_name: iam-kaas-iam-data
+    - name: kaas-ui
+      version: 1.18.3
+      chart: kaas-release/kaas-ui
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.3
+        rbac:
+          create: true
+
+    - name: iam-controller
+      version: 1.18.1
+      chart: kaas-release/iam-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+    - name: admission-controller
+      version: 1.18.1
+      chart: kaas-release/admission-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+    - name: release-controller
+      version: 1.18.1
+      chart: kaas-release/release-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+    - name: kaas-exporter
+      version: 1.18.1
+      chart: kaas-release/kaas-exporter
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+    - name: kaas-public-api
+      version: 1.18.1
+      chart: kaas-release/kaas-public-api
+      namespace: kaas
+      values: {}
+
+    - name: baremetal-public-api
+      version: 4.0.4
+      chart: kaas-bm/baremetal-public-api
+      namespace: kaas
+      requiresPersistentVolumes: true
+      values: {}
+
+    - name: proxy-controller
+      version: 1.18.1
+      chart: kaas-release/proxy-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+    - name: rhellicense-controller
+      version: 1.18.1
+      chart: kaas-release/rhellicense-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+
+  regional:
+  - provider: openstack
+    helmReleases:
+    - name: openstack-provider
+      version: 1.18.4
+      chart: kaas-release/openstack-provider
+      namespace: kaas
+      values:
+        images:
+          openstackMachineController:
+            tag: 1.18.4
+    - &squidProxy
+      name: squid-proxy
+      version: 1.18.1
+      chart: kaas-release/squid-proxy
+      namespace: kaas
+      values:
+        image:
+          tag: 0.0.1-1
+    - &lcmController
+      name: lcm-controller
+      version: 1.18.1
+      chart: kaas-release/lcm-controller
+      namespace: kaas
+      values:
+        lcmControllerImage:
+          tag: v0.2.0-289-gd7e9fa9c
+    - &mcc-cache
+      name: mcc-cache
+      version: 1.18.1
+      chart: kaas-release/mcc-cache
+      namespace: kaas
+      requires:
+      - local-volume-provisioner
+      localVolumes:
+      - name: kaas-nginx-data
+        bindMounts:
+        - volPerNode: 1
+      values:
+        nginx:
+          image:
+            tag: 1.18.0
+          volume:
+            enabled: true
+            storageClass: mcc-cache-kaas-nginx-data
+        registry:
+          image:
+            tag: 2.7.1
+        kproxy:
+          image:
+            tag: 1.18.1
+    - name: os-credentials-controller
+      version: 1.18.1
+      chart: kaas-release/os-credentials-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 1.18.1
+  - provider: baremetal
+    helmReleases:
+      - name: baremetal-operator
+        requiresPersistentVolumes: true
+        version: 4.0.4
+        chart: kaas-bm/baremetal-operator
+        namespace: kaas
+        values: {}
+      - name: baremetal-provider
+        version: 1.18.6
+        chart: kaas-release/baremetal-provider
+        namespace: kaas
+        values:
+          cluster_api_provider_baremetal:
+            image:
+              tag: 1.18.6
+      - name: kaas-ipam
+        version: 4.0.4
+        chart: kaas-bm/kaas-ipam
+        namespace: kaas
+        values: {}
+      - *lcmController
+      - *mcc-cache
+      - *squidProxy
+  - provider: aws
+    helmReleases:
+      - name: aws-provider
+        version: 1.18.4
+        chart: kaas-release/aws-provider
+        namespace: kaas
+        values:
+          awsController:
+            image:
+              tag: 1.18.4
+      - *lcmController
+      - *mcc-cache
+      - *squidProxy
+      - name: aws-credentials-controller
+        version: 1.18.1
+        chart: kaas-release/aws-credentials-controller
+        namespace: kaas
+        values:
+          image:
+            tag: 1.18.1
+  - provider: byo
+    helmReleases:
+      - name: byo-provider
+        version: 1.18.4
+        chart: kaas-release/byo-provider
+        namespace: kaas
+        values:
+          byoController:
+            image:
+              tag: 1.18.4
+      - name: byo-credentials-controller
+        version: 1.18.1
+        chart: kaas-release/byo-credentials-controller
+        namespace: kaas
+        values:
+          image:
+            tag: 1.18.1
+  - provider: vsphere
+    helmReleases:
+      - name: vsphere-provider
+        version: 1.18.7
+        chart: kaas-release/vsphere-provider
+        namespace: kaas
+        values:
+          vsphere_provider:
+            image:
+              tag: 1.18.7
+      - name: vsphere-credentials-controller
+        version: 1.18.1
+        chart: kaas-release/vsphere-credentials-controller
+        namespace: kaas
+        values:
+          image:
+            tag: 1.18.1
+      - name: kaas-ipam
+        version: 4.0.4
+        chart: kaas-bm/kaas-ipam
+        namespace: kaas
+        values:
+          kaas_ipam:
+            image:
+              tag: base-bionic-20210310144405
+      - *lcmController
+      - *mcc-cache
+      - *squidProxy

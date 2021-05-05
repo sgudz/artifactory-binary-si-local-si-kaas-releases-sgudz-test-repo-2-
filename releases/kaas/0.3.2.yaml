@@ -1,0 +1,188 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: KaaSRelease
+metadata:
+  name: kaas-0-3-2
+spec:
+  version: 0.3.2
+  clusterRelease: kubernetes-0-3-5-1-15
+  supportedClusterReleases:
+  - version: 0.2.2
+    name: kubernetes-0-2-2-1-14
+    availableUpgrades:
+    - version: 0.2.5
+  - version: 0.2.5
+    name: kubernetes-0-2-5-1-14
+    availableUpgrades:
+    - version: 0.3.5
+  - version: 0.3.2
+    name: kubernetes-0-3-2-1-15
+    availableUpgrades:
+    - version: 0.3.5
+  - version: 0.3.5
+    name: kubernetes-0-3-5-1-15
+  helmRepositories:
+  - name: kaas-release
+    url: https://artifactory.mirantis.com/helm-prod-virtual/kaas
+  - name: kaas-iam
+    url: https://artifactory.mirantis.com/helm-prod-virtual
+  - name: kaas-bm
+    url: https://artifactory.mirantis.com/artifactory/binary-kaas-local/bm/helm/
+  management:
+    helmReleases:
+    - name: iam
+      requiresPersistentVolumes: true
+      version: 0.5.9
+      chart: kaas-iam/iam
+      namespace: kaas
+      values:
+        api:
+          image:
+            repository: docker-prod-local.artifactory.mirantis.com/iam/api
+          # Set during bootstrap
+          # keycloak:
+          #   url:
+          #   ca:
+          tls:
+            enabled: true
+            # Set during bootstrap
+            # crt:
+            # key:
+          service:
+            type: LoadBalancer
+            # Set during bootstrap
+            # loadBalancerIP:
+        keycloak:
+          keycloak:
+            image:
+              repository:  docker-prod-local.artifactory.mirantis.com/iam/keycloak
+            pvc:
+              enabled: true
+            extraVolumes: |
+              - name: import-realm-config-map
+                configMap:
+                  name: "{{ include "iam.fullname" . }}-keycloak-import-realm"
+              - name: import-realm-dir
+                emptyDir:
+              - name: tls
+                secret:
+                  secretName: keycloak-tls-certs
+              {{- if .Values.keycloak.pvc.enabled }}
+              - name: data
+                persistentVolumeClaim:
+                  claimName: "{{ include "iam.fullname" . }}-keycloak"
+              {{- end }}
+            extraVolumeMounts: |
+              - name: import-realm-dir
+                mountPath: "/import-realm-dir"
+              - name: tls
+                mountPath: "/etc/x509/https"
+              {{- if .Values.keycloak.pvc.enabled }}
+              - name: data
+                mountPath: /opt/jboss/keycloak/standalone/data
+              {{- end }}
+          auxiliary:
+            image:
+              repository:  docker-prod-local.artifactory.mirantis.com/iam/auxiliary
+
+    - name: kaas-ui
+      version: 0.2.29
+      chart: kaas-release/kaas-ui
+      namespace: kaas
+      values:
+        image:
+          repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+          tag: 0.2.29
+        rbac:
+          create: true
+
+    - name: iam-controller
+      version: 0.2.29
+      chart: kaas-release/iam-controller
+      namespace: kaas
+      values:
+        image:
+          repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+          tag: 0.2.29
+
+    - name: os-resources-controller
+      version: 0.2.29
+      chart: kaas-release/os-resources-controller
+      namespace: kaas
+      values:
+        image:
+          repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+          tag: 0.2.29
+
+    - name: squid-cache
+      requiresPersistentVolumes: true
+      version: 0.2.29
+      chart: kaas-release/squid-cache
+      namespace: kaas
+      values:
+        cacheSize: 20
+        proxyDomain: kaas.local
+        image:
+          repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+          tag: 0.2.29
+
+  regional:
+  - provider: openstack
+    helmReleases:
+    - name: kaas-public-api
+      version: 0.2.29
+      chart: kaas-release/kaas-public-api
+      namespace: kaas
+      values: {}
+    - name: openstack-provider
+      version: 0.2.29
+      chart: kaas-release/openstack-provider
+      namespace: kaas
+      values:
+        images:
+          openstackMachineController:
+            repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+            tag: 0.2.29
+    - name: lcm-controller
+      version: 0.2.29
+      chart: kaas-release/lcm-controller
+      namespace: kaas
+      values: {}
+    - name: release-controller
+      version: 0.2.29
+      chart: kaas-release/release-controller
+      namespace: kaas
+      values:
+        image:
+          repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+          tag: 0.2.29
+  - provider: baremetal
+    helmReleases:
+      - name: kaas-public-api
+        version: 0.2.29
+        chart: kaas-release/kaas-public-api
+        namespace: kaas
+        values: {}
+      - name: baremetal-operator
+        requiresPersistentVolumes: true
+        version: 0.1.0-mcp-83
+        chart: kaas-bm/baremetal-operator
+        namespace: kaas-bm
+        values: {}
+      - name: baremetal-provider
+        version: 0.1.0-mcp-83
+        chart: kaas-bm/baremetal-provider
+        namespace: kaas-bm
+        values: {}
+      - name: lcm-controller
+        version: 0.2.29
+        chart: kaas-release/lcm-controller
+        namespace: kaas
+        values: {}
+      - name: release-controller
+        version: 0.2.29
+        chart: kaas-release/release-controller
+        namespace: kaas
+        values:
+          image:
+            repository: docker-prod-local.artifactory.mirantis.com/mirantis/kaas/
+            tag: 0.2.29

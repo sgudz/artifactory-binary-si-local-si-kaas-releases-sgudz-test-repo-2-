@@ -1,0 +1,175 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: KaaSRelease
+metadata:
+  name: kaas-1-0-0
+spec:
+  version: 1.0.0
+  clusterRelease: kubernetes-2-0-0-1-15
+  supportedClusterReleases:
+  - version: 1.0.0
+    name: kubernetes-1-0-0-1-14
+    availableUpgrades:
+    - version: 2.0.0
+  - version: 2.0.0
+    name: kubernetes-2-0-0-1-15
+  bootstrap:
+    version: 0.2.33
+  helmRepositories:
+  - name: kaas-release
+    url: core/helm
+  - name: kaas-iam
+    url: https://artifactory.mirantis.com/helm-prod-virtual
+  - name: kaas-bm
+    url: bm/helm
+  management:
+    helmReleases:
+    - name: iam
+      requiresPersistentVolumes: true
+      version: 1.0.1
+      chart: kaas-iam/iam
+      namespace: kaas
+      values:
+        api:
+          # Set during bootstrap
+          # keycloak:
+          #   url:
+          #   ca:
+          tls:
+            enabled: true
+          service:
+            type: LoadBalancer
+            # Set during bootstrap
+            # loadBalancerIP:
+        keycloak:
+          keycloak:
+            replicas: 1
+            service:
+              type: LoadBalancer
+              # Set during bootstrap
+              # loadBalancerIP:
+            pvc:
+              enabled: true
+            extraVolumes: |
+              - name: tls
+                secret:
+                  secretName: keycloak-tls-certs
+            extraVolumeMounts: |
+              - name: tls
+                mountPath: "/etc/x509/https"
+    - name: kaas-ui
+      version: 0.2.33
+      chart: kaas-release/kaas-ui
+      namespace: kaas
+      values:
+        image:
+          tag: 0.2.33
+        rbac:
+          create: true
+
+    - name: iam-controller
+      version: 0.2.33
+      chart: kaas-release/iam-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 0.2.33
+
+    - name: os-resources-controller
+      version: 0.2.33
+      chart: kaas-release/os-resources-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 0.2.33
+
+    - name: squid-cache
+      requiresPersistentVolumes: true
+      version: 0.2.33
+      chart: kaas-release/squid-cache
+      namespace: kaas
+      values:
+        cacheSize: 20
+        # override during bootstrap
+        proxyDomain: kaas.local
+        image:
+          tag: 0.2.33
+        serviceDomains:
+          # override during bootstrap
+          dockerRegistry:
+            proxySubdomain: docker-kaas-local
+            upstream: docker-kaas-local.artifactory.mirantis.com
+          binaryRegistry:
+            proxySubdomain: binary-kaas-local
+            upstream: binary-kaas-local.artifactory.mirantis.com
+
+    - name: ntpd
+      version: 0.2.33
+      chart: kaas-release/ntpd
+      namespace: kaas
+      values:
+        image:
+          tag: 0.2.33
+
+  regional:
+  - provider: openstack
+    helmReleases:
+    - &publicApi
+      name: kaas-public-api
+      version: 0.2.33
+      chart: kaas-release/kaas-public-api
+      namespace: kaas
+      values: {}
+    - name: openstack-provider
+      version: 0.2.33
+      chart: kaas-release/openstack-provider
+      namespace: kaas
+      values:
+        images:
+          openstackMachineController:
+            tag: 0.2.33
+    - &lcmController
+      name: lcm-controller
+      version: 0.2.33
+      chart: kaas-release/lcm-controller
+      namespace: kaas
+      values: {}
+    - &releaseController
+      name: release-controller
+      version: 0.2.33
+      chart: kaas-release/release-controller
+      namespace: kaas
+      values:
+        image:
+          tag: 0.2.33
+  - provider: baremetal
+    helmReleases:
+      - *publicApi
+      - name: baremetal-operator
+        requiresPersistentVolumes: true
+        version: 0.1.0-mcp-88
+        chart: kaas-bm/baremetal-operator
+        namespace: kaas
+        values: {}
+      - name: baremetal-provider
+        version: 0.2.33
+        chart: kaas-release/baremetal-provider
+        namespace: kaas
+        values:
+          cluster_api_provider_baremetal:
+            image:
+              tag: 0.2.33
+      - *lcmController
+      - *releaseController
+  - provider: aws
+    helmReleases:
+      - *publicApi
+      - name: aws-provider
+        version: 0.2.33
+        chart: kaas-release/aws-provider
+        namespace: kaas
+        values:
+          awsController:
+            image:
+              tag: 0.2.33
+      - *lcmController
+      - *releaseController

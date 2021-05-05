@@ -1,0 +1,156 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: ClusterRelease
+metadata:
+  name: ucp-5-6-0-3-4-0-tp2
+spec:
+  lcmType: ucp
+  version: 5.6.0+3.4.0-tp2
+  description: |
+    kubernetes: 1.18.3
+    containerd: 1.2.13
+    docker-engine: ee-stable-19.03.8
+    coredns: 1.5.0
+    etcd: v3.4.3
+    calico: v3.12.0
+  releaseNotes:
+  - version: 5.3.0
+    notes:
+    - text: Internal Dev version, UCP 3.4.0-tp2, Kubernetes 1.18.3
+  helm:
+    repositories:
+    - name: kaas
+      url: core/helm
+    - name: stacklight
+      url: stacklight/helm
+    - name: kaas-bm
+      url: bm/helm
+    - name: ceph
+      url: ceph/helm
+    releases:
+    - chart: kaas/metallb
+      name: metallb
+      namespace: metallb-system
+      version: 1.9.0
+      values:
+        configInline:
+          address-pools:
+          - addresses:
+            - 192.168.66.240-192.168.66.250
+            name: default
+            protocol: layer2
+    - name: stacklight
+      chart: stacklight/stacklight
+      version: 0.1.2-mcp-236
+      namespace: stacklight
+      requiresPersistentVolumes: true
+      values:
+        createHelmBundleCRD: true
+        tillerImage: lcm/helm/tiller:v2.16.5-4
+        helmControllerImage: lcm/lcm-controller:v0.2.0-118-gaf13295b
+        calico:
+          enabled: false
+        nginxExporter:
+          enabled: false
+        platform: ucp
+        ucp:
+          enabled: true
+    - name: ceph-controller
+      chart: ceph/ceph-controller
+      version: 0.1.0-mcp-12
+      namespace: ceph
+      values:
+        images:
+          cephController:
+            repository: ceph/mcp/ceph-controller
+            tag: v1.0.0-20200706071346
+    - name: local-volume-provisioner
+      chart: kaas-bm/local-volume-provisioner
+      version: 0.1.0-mcp-353
+      namespace: default
+      values: {}
+    - name: metrics-server
+      version: 1.9.0
+      chart: kaas/metrics-server
+      namespace: kube-system
+      values:
+        image:
+          tag: v0.3.6-1
+      required: true
+    - name: descheduler
+      version: 1.9.0
+      chart: kaas/descheduler
+      namespace: kube-system
+      values:
+        image:
+          tag: v0.8.0
+      required: true
+  agent:
+    version: v0.2.0-118-gaf13295b
+    downloadURL: lcm/bin/lcm-agent/v0.2.0-118-gaf13295b/lcm-agent
+    sha256: eb4a4a0f05826a7fe8100da61ff885879e7ef4478ae963bfd4caf2d93043b7a5
+  images:
+    helmController: lcm/lcm-controller:v0.2.0-118-gaf13295b
+    tiller: lcm/helm/tiller:v2.16.5-4
+    ucpSourceRepo: lcm/docker
+    ucpTargetRepo: docker
+  machineTypes:
+    worker:
+    - &downloadLcmAnsible
+      name: download lcm ansible
+      params:
+        path: /root/lcm-ansible-v0.2.0-103-g515cac3-1
+        url: lcm/bin/lcm-ansible/v0.2.0-103-g515cac3/lcm-ansible.tar.gz
+        sha256: 2e00f788aefef5eb7cf89abe3949baf1d66a60628a2865cf6cf62ab10bb6a2f5
+      runner: downloader
+      version: "1"
+      phase: prepare
+    - &downloadAnsibleDocker
+      name: download ansible docker
+      params:
+        path: /root/lcm-ansible-v0.2.0-103-g515cac3-1/ansible-docker
+        url: lcm/bin/ansible-docker/v0.3.5-117-g9742df0/ansible-docker.tar.gz
+        sha256: 5c69fe81ada078df0359a3d67c8a55f3adcf4c8fe9025ca3e306861605346c4f
+      runner: downloader
+      version: "1"
+      phase: prepare
+    - &setup
+      name: setup
+      params:
+        script: /root/lcm-ansible-v0.2.0-103-g515cac3-1/setup.sh
+        kaas_ubuntu_repo: kaas/ubuntu-2020-05-28-013407
+      runner: bash
+      version: "1"
+      phase: prepare
+    - &preDownload
+      name: pre download
+      params:
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-103-g515cac3-1/inventory/inventory-docker.tmpl
+        playbook: /root/lcm-ansible-v0.2.0-103-g515cac3-1/download_ucp.yml
+        ucp_pre_pull_images: "true"
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        ucp_enable_admin_ucp_scheduling: "{{ not .IsDedicatedMaster }}"
+        ucp_tag: 3.4.0-tp2
+        docker_engine_version: "{ Debian: ee-stable-19.03.8, RedHat: ee-stable-19.03.8 }"
+      phase: prepare
+      runner: ansible
+      version: "1"
+    - &deploy
+      name: deploy
+      params:
+        playbook: /root/lcm-ansible-v0.2.0-103-g515cac3-1/reconcile.yml
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-103-g515cac3-1/inventory/inventory-docker.tmpl
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        ucp_enable_admin_ucp_scheduling: "{{ not .IsDedicatedMaster }}"
+        ucp_tag: 3.4.0-tp2
+        docker_engine_version: "{ Debian: ee-stable-19.03.8, RedHat: ee-stable-19.03.8 }"
+      runner: ansible
+      version: "1"
+      phase: deploy
+    control:
+    - *downloadLcmAnsible
+    - *downloadAnsibleDocker
+    - *setup
+    - *preDownload
+    - *deploy

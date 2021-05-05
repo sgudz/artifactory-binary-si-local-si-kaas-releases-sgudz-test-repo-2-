@@ -1,0 +1,183 @@
+apiVersion: kaas.mirantis.com/v1alpha1
+kind: ClusterRelease
+metadata:
+  name: kubernetes-3-1-0-1-16
+spec:
+  version: 3.1.0+1.16.6
+  description: |
+    kubernetes: v1.16.6
+    containerd: 1.2.10
+    coredns: v1.6.6-104
+    etcd: v3.4.3
+    calico: v3.11.1
+    istio: 1.1.0
+    kubernetes-dashboard: 0.2.15
+  releaseNotes:
+  - version: 3.0.0
+    notes:
+    - text: Public Beta release, Kubernetes v1.16.6
+  helm:
+    repositories:
+    - name: kaas
+      url: core/helm
+    - name: stacklight
+      url: stacklight/helm
+    - name: kaas-bm
+      url: bm/helm
+    releases:
+    - name: istio
+      chart: kaas/istio
+      namespace: istio-system
+      version: 0.2.44
+      values:
+        gateways:
+        istio-egressgateway:
+          enabled: true
+        global:
+          controlPlaneSecurityEnabled: true
+          multiCluster:
+            enabled: true
+          podDNSSearchNamespaces:
+          - global
+          - '[[ valueOrDefault .DeploymentMeta.Namespace "default" ]].global'
+        grafana:
+          enabled: false
+        istiocoredns:
+          enabled: true
+        security:
+          selfSigned: false
+        sidecarInjectorWebhook:
+          enabled: true
+    - name: kubernetes-dashboard
+      chart: kaas/kubernetes-dashboard
+      namespace: kube-system
+      version: 0.2.44
+      values:
+        image:
+          tag: v2.0.0-beta6-5
+        kubernetes-dashboard-proxy:
+          initImage:
+            tag: 0.2.44
+    - chart: kaas/metallb
+      name: metallb
+      namespace: metallb-system
+      version: 0.2.44
+      values:
+        configInline:
+          address-pools:
+          - addresses:
+            - 192.168.66.240-192.168.66.250
+            name: default
+            protocol: layer2
+    - name: stacklight
+      chart: stacklight/stacklight
+      version: 0.1.2-mcp-66
+      namespace: stacklight
+      requiresPersistentVolumes: true
+      values:
+        createHelmBundleCRD: true
+        tillerImage: lcm/helm/tiller:v2.15.2-1
+        helmControllerImage: lcm/lcm-controller:v0.2.0-43
+    - name: ceph-controller
+      chart: kaas/ceph-controller
+      version: 0.2.44
+      namespace: default
+      values: {}
+    - name: local-volume-provisioner
+      chart: kaas-bm/local-volume-provisioner
+      version: 0.1.0-mcp-353
+      namespace: default
+      values: {}
+  agent:
+    version: v0.2.0-53-g017f133a
+    downloadURL: lcm/bin/lcm-agent/v0.2.0-53/lcm-agent
+    sha256: 00b59db75055b23e17e05cc51b1ee6cc5e37303bb459a08c7e64019abe1c3e4c
+  images:
+    helmController: lcm/lcm-controller:v0.2.0-62-gbf079b6
+    tiller: lcm/helm/tiller:v2.15.2-1
+  machineTypes:
+    worker:
+    - &downloadLcmAnsible
+      name: download lcm ansible
+      params:
+        path: /root/lcm-ansible-v0.2.0-50-g0e4a9c5
+        url: lcm/bin/lcm-ansible/v0.2.0-50-g0e4a9c5/lcm-ansible.tar.gz
+        sha256: 036288f220a73dd204b0cbe0223db7be24b0005f80942b379f743a1f807b3105
+      runner: downloader
+      version: "1"
+      phase: prepare
+    - &downloadKubespray
+      name: download kubespray
+      params:
+        path: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/kubespray
+        url: lcm/bin/kubespray/v2.11-216-g2df9dc7/kubespray.tar.gz
+        sha256: b31d796b10b45211179dd3886e89854c80d9f7bb998058426e33d04218886f07
+      runner: downloader
+      version: "1"
+      phase: prepare
+    - &setup
+      name: setup
+      params:
+        script: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/setup.sh
+      runner: bash
+      version: "1"
+      phase: prepare
+    - &preDownload
+      name: pre download
+      params:
+        playbook: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/download.yml
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/inventory/inventory.tmpl
+        download_only: "true"
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        isDedicatedMaster: "{{ .IsDedicatedMaster }}"
+        kube_version: v1.16.6-11
+      runner: ansible
+      version: "1"
+      phase: prepare
+    - &deploy
+      name: deploy
+      params:
+        playbook: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/cluster.yml
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/inventory/inventory.tmpl
+        skipTags: download
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        isDedicatedMaster: "{{ .IsDedicatedMaster }}"
+        kube_version: v1.16.6-11
+      runner: ansible
+      version: "1"
+      phase: deploy
+    - &updateConfiguration
+      name: update configuration
+      params:
+        playbook: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/update_endpoints.yml
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/inventory/inventory.tmpl
+        skipTags: download
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        controlPlaneNodesIPs: "{{ .ControlPlaneNodesIPs }}"
+        isDedicatedMaster: "{{ .IsDedicatedMaster }}"
+        kube_version: v1.16.6-11
+      runner: ansible
+      version: "1"
+      phase: reconfigure
+    control:
+    - *downloadLcmAnsible
+    - *downloadKubespray
+    - *setup
+    - *preDownload
+    - *deploy
+    - *updateConfiguration
+    - name: upload certs
+      params:
+        playbook: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/refresh_kubeadm_certs.yml
+        ansible: /usr/bin/ansible-playbook
+        inventoryTemplate: /root/lcm-ansible-v0.2.0-50-g0e4a9c5/inventory/inventory.tmpl
+        skipTags: download
+        NodesIPs: "{{ .AllNodesIPs }}"
+        controlNodeIP: "{{ .ControlNodeIP }}"
+        kube_version: v1.16.6-11
+      runner: ansible
+      version: "1"
+      phase: reconfigure
