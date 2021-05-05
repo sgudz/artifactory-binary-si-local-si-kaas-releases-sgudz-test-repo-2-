@@ -75,4 +75,7 @@ kaasReleases:
 - path: kaas/2.8.0.yaml
   sha256: 8c76e88685d30cf7e319ef1f80c3ae8bcc90bb4ce6339b73e33bc50c41cffbfa
   version: 2.8.0
+- path: kaas/2.9.0.yaml
+  sha256: 34ba76ac30458a8d48336acf4c1cc26632c450bd3ffdbdfd31f02b69b7525df3
+  version: 2.9.0
 kind: Index
